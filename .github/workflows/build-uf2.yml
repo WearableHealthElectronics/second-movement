@@ -1,0 +1,32 @@
+name: Build Sensor Watch Pro UF2
+
+on:
+  workflow_dispatch:
+    inputs:
+      display:
+        description: "Display type (classic or custom)"
+        required: true
+        default: "classic"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make gcc-arm-none-eabi python3
+
+      - name: Build firmware
+        run: |
+          make BOARD=sensorwatch_pro DISPLAY=${{ github.event.inputs.display }}
+
+      - name: Upload UF2
+        uses: actions/upload-artifact@v4
+        with:
+          name: sensorwatch-pro-firmware
+          path: build/firmware.uf2
