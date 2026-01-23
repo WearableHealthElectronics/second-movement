@@ -24,10 +24,9 @@
 
 #ifndef MOVEMENT_CONFIG_H_
 #define MOVEMENT_CONFIG_H_
-#include "hello_face.h"
+
 #include "movement_faces.h"
 
-extern const watch_face_t hello_face;
 
 const watch_face_t watch_faces[] = {
     clock_face,
@@ -38,7 +37,6 @@ const watch_face_t watch_faces[] = {
     countdown_face,
     alarm_face,
     //temperature_display_face,
-    hello_face,
     voltage_face,
     settings_face,
     set_time_face,
