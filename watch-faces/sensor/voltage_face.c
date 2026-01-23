@@ -13,6 +13,7 @@ typedef struct {
     uint8_t hit_count;
     uint8_t last_subsecond;
     watch_date_time_t first_time;
+    uint8_t light_ticks; // number of 4Hz ticks to keep light on
 } wave_ctx_t;
 
 // ------------------------------------------------------------
