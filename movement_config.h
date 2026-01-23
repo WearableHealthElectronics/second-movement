@@ -24,7 +24,7 @@
 
 #ifndef MOVEMENT_CONFIG_H_
 #define MOVEMENT_CONFIG_H_
-
+#include "clock_face.h"
 #include "movement_faces.h"
 
 const watch_face_t watch_faces[] = {
