@@ -27,6 +27,14 @@
 #include "hello_face.h"
 #include "watch.h"
 
+const watch_face_t hello_face = {
+    hello_face_setup,
+    hello_face_activate,
+    hello_face_loop,
+    hello_face_resign,
+};
+
+
 static void _hello_face_update_display(void) {
     float hello = (float)watch_get_vcc_hello() / 1000.0;
 
