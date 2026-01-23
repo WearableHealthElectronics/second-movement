@@ -85,7 +85,9 @@ void voltage_face_activate(void *context) {
     movement_request_tick_frequency(4);
 
     // 🔑 TURN ACCELEROMETER ON (background mode)
-    movement_set_accelerometer_background_rate(LIS2DW_DATA_RATE_1_6_HZ);
+    movement_enable_tap_detection_if_available();
+    movement_set_accelerometer_background_rate(LIS2DW_DATA_RATE_50_HZ);
+
 
     reset_hits(ctx);
 
@@ -169,5 +171,6 @@ void voltage_face_resign(void *context) {
     (void) context;
 
     // 🔑 TURN ACCELEROMETER OFF when leaving the face
-    movement_set_accelerometer_background_rate(LIS2DW_DATA_RATE_OFF);
+    movement_disable_tap_detection_if_available();
+
 }
