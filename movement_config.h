@@ -27,6 +27,8 @@
 #include "hello_face.h"
 #include "movement_faces.h"
 
+extern const watch_face_t hello_face;
+
 const watch_face_t watch_faces[] = {
     clock_face,
     world_clock_face,
