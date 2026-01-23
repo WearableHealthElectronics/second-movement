@@ -1,17 +1,6 @@
 #ifndef VOLTAGE_FACE_H_
 #define VOLTAGE_FACE_H_
 
-/*
- * VOLTAGE face repurposed:
- * "Wave / repetitive motion detector" using the LIS2DW12 accelerometer board's
- * motion/active status signal on GPIO A4.
- *
- * Behavior:
- * - Samples at 4 Hz while this face is active.
- * - Counts "motion hits" when the accelerometer indicates Active.
- * - If it sees 4 hits within 4 seconds (and hits are spaced out a bit), it beeps.
- */
-
 #include "movement.h"
 
 void voltage_face_setup(uint8_t watch_face_index, void ** context_ptr);
