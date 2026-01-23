@@ -1,39 +1,15 @@
-/*
- * MIT License
- *
- * Copyright (c) 2022 Joey Castillo
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
- */
-
 #ifndef VOLTAGE_FACE_H_
 #define VOLTAGE_FACE_H_
 
 /*
- * VOLTAGE face
+ * VOLTAGE face repurposed:
+ * "Wave / repetitive motion detector" using the LIS2DW12 accelerometer board's
+ * motion/active status signal on GPIO A4.
  *
- * This watch face is very simple and has no controls to speak of. It displays
- * the battery voltage as measured by the SAM L22’s ADC.
- *
- * Note that the Simple Clock watch face includes a low battery warning, so you
- * don’t technically need to this watch face unless you want to track the
- * battery level.
+ * Behavior:
+ * - Samples at 4 Hz while this face is active.
+ * - Counts "motion hits" when the accelerometer indicates Active.
+ * - If it sees 4 hits within 4 seconds (and hits are spaced out a bit), it beeps.
  */
 
 #include "movement.h"
