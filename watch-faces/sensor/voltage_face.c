@@ -26,7 +26,7 @@
 #define PEAK_REFRACTORY_TICKS   3
 
 // How many peaks we require and the time window.
-#define REQUIRED_PEAKS          4
+#define REQUIRED_PEAKS          2
 #define WINDOW_SECONDS          4
 
 // Peaks must be similar: max - min <= tolerance
