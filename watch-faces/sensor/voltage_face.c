@@ -5,60 +5,47 @@
 #include "lis2dw.h"
 
 // =====================
-// TUNING KNOBS
+// TUNING
 // =====================
+#define TICK_HZ                 16
+#define ACCEL_RATE              LIS2DW_DATA_RATE_50_HZ
 
-// How fast our face loop runs. Higher = better peak detection.
-// 8 is a good balance. If your build supports 16, even better.
-// (If you want, try 16 later.)
-#define TICK_HZ                 8
+// Cycle period limits (in ticks)
+// At 16 Hz: 3 ticks = 0.187s, 24 ticks = 1.5s
+#define MIN_CYCLE_TICKS         3
+#define MAX_CYCLE_TICKS         24
 
-// Accelerometer sample rate (actual sensor). 25 Hz is plenty for waving.
-// (50 Hz also works, but costs more power.)
-#define ACCEL_RATE              LIS2DW_DATA_RATE_25_HZ
-
-// Peak detection threshold in "high-pass magnitude units".
-// If it never triggers, lower this. If it triggers too easily, raise it.
-#define PEAK_THRESHOLD          1800
-
-// Minimum ticks between peaks so we don’t double-count one wave.
-// At 8 Hz, 3 ticks ≈ 0.375s. For waving, 2–5 is typical.
-#define PEAK_REFRACTORY_TICKS   3
-
-// How many peaks we require and the time window.
-#define REQUIRED_PEAKS          2
+#define REQUIRED_CYCLES         4
 #define WINDOW_SECONDS          4
 
-// Peaks must be similar: max - min <= tolerance
-#define PEAK_TOLERANCE          1200
+#define LED_ON_TICKS            8   // at 16 Hz ≈ 0.5 sec
 
-// LED flash duration after detection (ticks at TICK_HZ)
-#define LED_ON_TICKS            6   // at 8 Hz ≈ 0.75 sec
+// How big the oscillation must be to count (noise gate)
+#define AMP_THRESHOLD           1200
 
 // =====================
 
 typedef struct {
-    // baseline (low-pass) of magnitude to remove gravity / bias
     int32_t baseline;
 
-    // peak detector state
-    bool was_above;
-    uint8_t refractory;
+    // filtered signed high-pass signal
+    int32_t hp_filt;
 
-    // collected peaks
-    int16_t peaks[REQUIRED_PEAKS];
-    uint8_t peak_count;
-    watch_date_time_t first_peak_time;
+    // cycle detection state
+    int32_t last_hp_filt;
+    uint16_t tick_counter;
+    uint16_t last_cross_tick;
 
-    // UI / effects
+    uint8_t cycle_count;
+    watch_date_time_t first_cycle_time;
+
     uint8_t led_ticks;
 } wave_ctx_t;
 
-static void reset_peaks(wave_ctx_t *ctx) {
-    ctx->was_above = false;
-    ctx->refractory = 0;
-    ctx->peak_count = 0;
-    memset(&ctx->first_peak_time, 0, sizeof(ctx->first_peak_time));
+static void reset_cycles(wave_ctx_t *ctx) {
+    ctx->cycle_count = 0;
+    memset(&ctx->first_cycle_time, 0, sizeof(ctx->first_cycle_time));
+    ctx->last_cross_tick = 0;
 }
 
 static void beep(void) {
@@ -68,7 +55,7 @@ static void beep(void) {
 
 static void led_on(void) {
     watch_enable_leds();
-    watch_set_led_green(); // change to watch_set_led_red() if you prefer
+    watch_set_led_green();
 }
 
 static void led_off(void) {
@@ -80,72 +67,49 @@ static void clear_display(void) {
     watch_display_text(WATCH_POSITION_TOP_LEFT,  "  ");
     watch_display_text(WATCH_POSITION_TOP_RIGHT, "  ");
     watch_display_text(WATCH_POSITION_BOTTOM,    "     ");
-
     if (watch_get_lcd_type() == WATCH_LCD_TYPE_CLASSIC) {
         watch_display_text(WATCH_POSITION_SECONDS, "  ");
     }
     watch_clear_decimal_if_available();
 }
 
-static void draw(wave_ctx_t *ctx, int16_t hp_mag) {
-    (void)hp_mag;
-
+static void draw(wave_ctx_t *ctx) {
     clear_display();
     watch_display_text(WATCH_POSITION_TOP_LEFT, "WV");
 
-    // show peak count 0..4 in top right
-    char d[3] = { ' ', (char)('0' + (ctx->peak_count <= 9 ? ctx->peak_count : 9)), '\0' };
+    // show cycle count
+    char d[3] = { ' ', (char)('0' + (ctx->cycle_count <= 9 ? ctx->cycle_count : 9)), '\0' };
     watch_display_text(WATCH_POSITION_TOP_RIGHT, d);
 
-    // show simple status at bottom: "RUN" when we’re seeing motion, else "----"
-    // (we call it RUN if we’re recently above threshold)
-    if (ctx->was_above) {
-        watch_display_text_with_fallback(WATCH_POSITION_BOTTOM, "RUN  ", "rN");
-        watch_set_indicator(WATCH_INDICATOR_SIGNAL);
-    } else {
-        watch_display_text_with_fallback(WATCH_POSITION_BOTTOM, "---- ", "--");
-        watch_clear_indicator(WATCH_INDICATOR_SIGNAL);
-    }
+    watch_display_text_with_fallback(WATCH_POSITION_BOTTOM, "CYCL ", "Cy");
+    watch_set_indicator(WATCH_INDICATOR_SIGNAL);
 }
 
-// Return seconds-since-midnight (simple timing)
 static int32_t to_seconds(watch_date_time_t t) {
     return (int32_t)t.unit.hour * 3600 + (int32_t)t.unit.minute * 60 + (int32_t)t.unit.second;
 }
 
-static bool peaks_similar(const int16_t p[REQUIRED_PEAKS]) {
-    int16_t mn = p[0], mx = p[0];
-    for (int i = 1; i < REQUIRED_PEAKS; i++) {
-        if (p[i] < mn) mn = p[i];
-        if (p[i] > mx) mx = p[i];
-    }
-    return (mx - mn) <= PEAK_TOLERANCE;
-}
-
-// Read one accel sample and return a "high-pass magnitude" value.
-// Uses: lis2dw_have_new_data() and lis2dw_get_raw_reading().
-static bool read_hp_mag(wave_ctx_t *ctx, int16_t *out_hp_mag) {
+// Read accel and update baseline + filtered signed hp
+static bool read_hp_filtered(wave_ctx_t *ctx, int32_t *out_hp_filt_abs) {
     if (!lis2dw_have_new_data()) return false;
 
     lis2dw_reading_t r = lis2dw_get_raw_reading();
-
-    // magnitude-ish (no sqrt): abs(x)+abs(y)+abs(z)
     int32_t mag = (int32_t)abs(r.x) + (int32_t)abs(r.y) + (int32_t)abs(r.z);
 
-    // init baseline the first time
     if (ctx->baseline == 0) ctx->baseline = mag;
 
-    // low-pass baseline: baseline += (mag - baseline)/16
+    // baseline LP: /16
     ctx->baseline += (mag - ctx->baseline) >> 4;
 
-    // high-pass magnitude = |mag - baseline|
+    // signed high-pass
     int32_t hp = mag - ctx->baseline;
-    if (hp < 0) hp = -hp;
 
-    // clamp to int16 range
-    if (hp > 32767) hp = 32767;
+    // light smoothing on hp to reduce jitter: /4
+    ctx->hp_filt += (hp - ctx->hp_filt) >> 2;
 
-    *out_hp_mag = (int16_t)hp;
+    int32_t a = ctx->hp_filt;
+    if (a < 0) a = -a;
+    *out_hp_filt_abs = a;
     return true;
 }
 
@@ -161,18 +125,16 @@ void voltage_face_activate(void *context) {
     wave_ctx_t *ctx = (wave_ctx_t *)context;
 
     movement_request_tick_frequency(TICK_HZ);
-
-    // Ensure accelerometer is enabled/configured in this firmware environment
     movement_enable_tap_detection_if_available();
     movement_set_accelerometer_background_rate(ACCEL_RATE);
 
-    // Reset state
-    ctx->baseline = 0;
-    reset_peaks(ctx);
+    memset(ctx, 0, sizeof(*ctx));
+    ctx->tick_counter = 0;
+    reset_cycles(ctx);
     ctx->led_ticks = 0;
 
     if (watch_sleep_animation_is_running()) watch_stop_sleep_animation();
-    draw(ctx, 0);
+    draw(ctx);
 }
 
 bool voltage_face_loop(movement_event_t event, void *context) {
@@ -180,78 +142,79 @@ bool voltage_face_loop(movement_event_t event, void *context) {
 
     switch (event.event_type) {
         case EVENT_ACTIVATE:
-            ctx->baseline = 0;
-            reset_peaks(ctx);
+            memset(ctx, 0, sizeof(*ctx));
+            reset_cycles(ctx);
             ctx->led_ticks = 0;
             led_off();
-            draw(ctx, 0);
+            draw(ctx);
             break;
 
         case EVENT_TICK: {
-            // handle LED timeout
+            ctx->tick_counter++;
+
+            // LED timeout
             if (ctx->led_ticks) {
                 ctx->led_ticks--;
                 if (ctx->led_ticks == 0) led_off();
             }
 
-            // Try to consume accel samples. At higher accel rates, there may be more than one
-            // sample ready between ticks; we’ll read up to a few to keep up.
-            for (int i = 0; i < 4; i++) {
-                int16_t hp_mag = 0;
-                if (!read_hp_mag(ctx, &hp_mag)) break;
+            // consume a few samples if available
+            for (int i = 0; i < 6; i++) {
+                int32_t amp = 0;
+                if (!read_hp_filtered(ctx, &amp)) break;
 
-                // refractory countdown
-                if (ctx->refractory) ctx->refractory--;
+                // Only detect cycles when there is enough oscillation (noise gate)
+                if (amp < AMP_THRESHOLD) {
+                    ctx->last_hp_filt = ctx->hp_filt;
+                    continue;
+                }
 
-                bool above = (hp_mag >= PEAK_THRESHOLD);
+                // Detect a NEG->POS zero crossing of filtered hp
+                bool crossed = (ctx->last_hp_filt < 0 && ctx->hp_filt >= 0);
 
-                // detect an upward threshold crossing as a "peak event"
-                if (above && !ctx->was_above && ctx->refractory == 0) {
-                    watch_date_time_t now = movement_get_local_date_time();
+                if (crossed) {
+                    uint16_t now_tick = ctx->tick_counter;
+                    uint16_t dt_ticks = (ctx->last_cross_tick == 0) ? 0 : (uint16_t)(now_tick - ctx->last_cross_tick);
 
-                    if (ctx->peak_count == 0) {
-                        ctx->first_peak_time = now;
-                    }
+                    // Accept only if within reasonable period band
+                    if (dt_ticks >= MIN_CYCLE_TICKS && dt_ticks <= MAX_CYCLE_TICKS) {
+                        watch_date_time_t now = movement_get_local_date_time();
 
-                    // record peak magnitude (hp_mag)
-                    if (ctx->peak_count < REQUIRED_PEAKS) {
-                        ctx->peaks[ctx->peak_count++] = hp_mag;
-                    }
+                        if (ctx->cycle_count == 0) {
+                            ctx->first_cycle_time = now;
+                            ctx->cycle_count = 1;
+                        } else {
+                            ctx->cycle_count++;
+                        }
 
-                    ctx->refractory = PEAK_REFRACTORY_TICKS;
+                        // Window check
+                        int32_t dt_s = to_seconds(now) - to_seconds(ctx->first_cycle_time);
+                        if (dt_s > WINDOW_SECONDS) {
+                            ctx->first_cycle_time = now;
+                            ctx->cycle_count = 1;
+                        }
 
-                    // time window check
-                    int32_t dt = to_seconds(now) - to_seconds(ctx->first_peak_time);
-                    if (dt > WINDOW_SECONDS) {
-                        // restart window using this as the first peak
-                        ctx->first_peak_time = now;
-                        ctx->peak_count = 1;
-                        ctx->peaks[0] = hp_mag;
-                    }
-
-                    // trigger
-                    if (ctx->peak_count >= REQUIRED_PEAKS) {
-                        if (peaks_similar(ctx->peaks)) {
+                        if (ctx->cycle_count >= REQUIRED_CYCLES) {
                             beep();
                             led_on();
                             ctx->led_ticks = LED_ON_TICKS;
+                            reset_cycles(ctx);
                         }
-                        reset_peaks(ctx);
                     }
+
+                    ctx->last_cross_tick = now_tick;
                 }
 
-                ctx->was_above = above;
+                ctx->last_hp_filt = ctx->hp_filt;
             }
 
-            // redraw UI (not too heavy)
-            // show latest hp value indirectly via RUN/-- and peak count
-            draw(ctx, 0);
+            draw(ctx);
             break;
         }
 
         case EVENT_LOW_ENERGY_UPDATE:
             if (!watch_sleep_animation_is_running()) watch_start_sleep_animation(1000);
-            draw(ctx, 0);
+            draw(ctx);
             break;
 
         default:
