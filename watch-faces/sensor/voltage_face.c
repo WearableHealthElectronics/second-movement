@@ -5,7 +5,7 @@
 #include "lis2dw.h"
 
 // ---- Tuning ----
-#define REQUIRED_HITS      4
+#define REQUIRED_HITS      2
 #define WINDOW_SECONDS     4
 
 // How long the LED stays on after a detection.
