@@ -13,15 +13,15 @@
 // Cycle period limits (in ticks)
 // At 16 Hz: 3 ticks = 0.187s, 24 ticks = 1.5s
 #define MIN_CYCLE_TICKS         3
-#define MAX_CYCLE_TICKS         24
+#define MAX_CYCLE_TICKS         9
 
-#define REQUIRED_CYCLES         4
+#define REQUIRED_CYCLES         6
 #define WINDOW_SECONDS          4
 
 #define LED_ON_TICKS            8   // at 16 Hz ≈ 0.5 sec
 
 // How big the oscillation must be to count (noise gate)
-#define AMP_THRESHOLD           1200
+#define AMP_THRESHOLD           1400
 
 // =====================
 
