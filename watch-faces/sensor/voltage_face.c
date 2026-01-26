@@ -11,10 +11,11 @@
 
 typedef struct {
     uint8_t hit_count;
-    uint8_t last_subsecond;
     watch_date_time_t first_time;
-    uint8_t light_ticks; // number of 4Hz ticks to keep light on
+    bool prev_active;
+    uint8_t light_ticks; // optional, counts down at 4Hz
 } wave_ctx_t;
+
 
 // ------------------------------------------------------------
 
@@ -25,9 +26,11 @@ static void beep(void) {
 
 static void reset_hits(wave_ctx_t *ctx) {
     ctx->hit_count = 0;
-    ctx->last_subsecond = 0;
+    ctx->prev_active = false;
+    ctx->light_ticks = 0;
     memset(&ctx->first_time, 0, sizeof(ctx->first_time));
 }
+
 
 // From accelerometer_status_face:
 // A4 HIGH = Still, A4 LOW = Active
