@@ -31,10 +31,7 @@
 const watch_face_t watch_faces[] = {
     clock_face,
     voltage_face,
-    
-    //world_clock_face,
-    //sunrise_sunset_face,
-    //moon_phase_face,
+    activity_logging_face,
     fast_stopwatch_face,
     //countdown_face,
     alarm_face,
